@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>极速地平线 · 城市与郊区</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: system-ui, sans-serif; background: #111; touch-action: none; }
+    #info {
+      position: absolute; top: 15px; left: 15px; color: #fff;
+      background: rgba(0,0,0,0.5); padding: 8px 16px; border-radius: 20px;
+      font-size: 14px; pointer-events: none; backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,255,255,0.2); z-index: 100;
+    }
+    #zone-indicator {
+      position: absolute; top: 15px; left: 50%; transform: translateX(-50%);
+      color: #fff; background: rgba(0,0,0,0.5); padding: 8px 16px; border-radius: 20px;
+      font-size: 14px; pointer-events: none; backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,255,255,0.2); z-index: 100; transition: background 0.4s;
+    }
+    #speedometer {
+      position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+      color: #fff; background: rgba(0,0,0,0.5); padding: 6px 20px;
+      border-radius: 20px; font-size: 15px; font-weight: bold;
+      pointer-events: none; backdrop-filter: blur(4px);
+      border: 1px solid rgba(255,255,255,0.2); z-index: 100;
+      font-variant-numeric: tabular-nums;
+    }
+    #minimap {
+      position: absolute; top: 15px; right: 15px;
+      width: 130px; height: 130px; border-radius: 12px;
+      background: rgba(0,0,0,0.6); border: 2px solid rgba(255,255,255,0.4);
+      z-index: 150; overflow: hidden;
+    }
+    #minimap canvas { width: 100%; height: 100%; display: block; }
+    #controls-left {
+      position: absolute; bottom: 25px; left: 20px;
+      display: flex; gap: 14px; z-index: 200;
+    }
+    #controls-right {
+      position: absolute; bottom: 25px; right: 20px;
+      display: flex; gap: 14px; align-items: flex-end; z-index: 200;
+    }
+    .ctrl-btn {
+      width: 68px; height: 68px;
+      background: rgba(255,255,255,0.15); backdrop-filter: blur(8px);
+      border-radius: 50%; border: 2px solid rgba(255,255,255,0.5);
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 28px; font-weight: bold;
+      pointer-events: auto; user-select: none;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+      transition: transform 0.08s, background 0.15s;
+    }
+    .ctrl-btn:active, .ctrl-btn.active { transform: scale(0.92); background: rgba(255,255,255,0.4); }
+    #gas-btn.active { background: rgba(80,255,80,0.5); border-color: #50ff50; }
+    #brake-btn.active { background: rgba(255,80,80,0.5); border-color: #ff5050; }
+    #gear-shifter {
+      position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      z-index: 200; user-select: none;
+    }
+    #gear-label {
+      color: #fff; font-size: 12px; background: rgba(0,0,0,0.5);
+      padding: 2px 10px; border-radius: 10px; letter-spacing: 2px;
+    }
+    #gear-track {
+      width: 60px; height: 110px; background: rgba(0,0,0,0.55);
+      backdrop-filter: blur(8px); border-radius: 30px;
+      border: 2px solid rgba(255,255,255,0.4);
+      position: relative; pointer-events: auto;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+    #gear-knob {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      width: 50px; height: 50px; border-radius: 50%;
+      background: linear-gradient(145deg, #66ff66, #22aa22);
+      border: 2px solid #fff; box-shadow: 0 3px 10px rgba(0,0,0,0.5);
+      display: flex; align-items: center; justify-content: center;
+      color: #000; font-weight: 900; font-size: 22px;
+      transition: top 0.15s ease-out, background 0.2s;
+      top: 5px;
+    }
+    #gear-knob.reverse { top: 55px; background: linear-gradient(145deg, #ff6666, #cc2222); }
+    .hint {
+      position: absolute; bottom: 105px; left: 50%; transform: translateX(-50%);
+      color: rgba(255,255,255,0.7); font-size: 12px;
+      background: rgba(0,0,0,0.4); padding: 4px 14px; border-radius: 20px;
+      white-space: nowrap; pointer-events: none; backdrop-filter: blur(4px); z-index: 100;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">🏁 极速地平线</div>
+  <div id="zone-indicator">🌆 城市中心</div>
+  <div id="speedometer">0 km/h · D</div>
+  <div id="minimap"><canvas id="minimap-canvas" width="260" height="260"></canvas></div>
+
+  <div id="controls-left">
+    <div id="left-btn" class="ctrl-btn">←</div>
+    <div id="right-btn" class="ctrl-btn">→</div>
+  </div>
+
+  <div id="gear-shifter">
+    <div id="gear-label">GEAR</div>
+    <div id="gear-track">
+      <div id="gear-knob">D</div>
+    </div>
+  </div>
+
+  <div id="controls-right">
+    <div id="brake-btn" class="ctrl-btn">▼</div>
+    <div id="gas-btn" class="ctrl-btn">▲</div>
+  </div>
+
+  <div class="hint">←→转向 · ▲油门 · ▼刹车 · 换挡器切换D/R</div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.128.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    const MAP_SIZE = 500;
+    const HALF_MAP = MAP_SIZE / 2;
+    const ROAD_WIDTH_CITY = 8;
+    const ROAD_WIDTH_SUBURB = 6;
+
+    // ============ 场景 ============
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB);
+    scene.fog = new THREE.Fog(0x87CEEB, 150, 450);
+
+    const camera = new THREE.PerspectiveCamera(65, innerWidth/innerHeight, 0.1, 2000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    // ============ 光照 ============
+    scene.add(new THREE.AmbientLight(0x8090a0, 0.9));
+    const sun = new THREE.DirectionalLight(0xfff5e0, 1.1);
+    sun.position.set(80, 150, 60);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const sd = 200;
+    sun.shadow.camera.left = -sd; sun.shadow.camera.right = sd;
+    sun.shadow.camera.top = sd; sun.shadow.camera.bottom = -sd;
+    sun.shadow.camera.near = 1; sun.shadow.camera.far = 500;
+    sun.shadow.bias = -0.0005;
+    scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xccddff, 0.3);
+    fill.position.set(-60, 40, -60);
+    scene.add(fill);
+
+    // ============ 地形高度 ============
+    function terrainHeight(x, z) {
+      const dist = Math.sqrt(x*x + z*z);
+      const flatFactor = Math.min(1, Math.max(0, (dist - 70) / 70));
+      let h = 0;
+      h += Math.sin(x * 0.012) * Math.cos(z * 0.012) * 10;
+      h += Math.sin(x * 0.028 + 1.3) * Math.cos(z * 0.026 + 0.7) * 4.5;
+      h += Math.sin(x * 0.06 + 2.1) * Math.cos(z * 0.055 + 1.5) * 1.8;
+      h *= flatFactor;
+      const d1 = Math.hypot(x + 140, z + 120);
+      if (d1 < 50) {
+        const f = Math.max(0, 1 - d1 / 50);
+        h = h * (1 - f*f) - 6 * f*f;
+      }
+      const d2 = Math.hypot(x - 150, z - 130);
+      if (d2 < 60) {
+        const f = Math.max(0, 1 - d2 / 60);
+        h = h * (1 - f*f) - 7 * f*f;
+      }
+      const riverW = 14;
+      const steps = 40;
+      let minDist = Infinity;
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const px = -140 + t * 290;
+        const pz = -120 + t * 250 + Math.sin(t * Math.PI * 2) * 30;
+        const d = Math.hypot(x - px, z - pz);
+        if (d < minDist) minDist = d;
+      }
+      if (minDist < riverW * 2.5) {
+        const f = Math.max(0, 1 - minDist / (riverW * 2.5));
+        h -= f * f * 5;
+      }
+      return h;
+    }
+
+    // ============ 地形网格 ============
+    const SEG = 220;
+    const terrainGeo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE, SEG, SEG);
+    terrainGeo.rotateX(-Math.PI / 2);
+    const posAttr = terrainGeo.attributes.position;
+    const colors = [];
+    const cGreen = new THREE.Color(0x3d7a3d);
+    const cDirt = new THREE.Color(0x8B7355);
+    const cSand = new THREE.Color(0xd4c896);
+    const cWaterbed = new THREE.Color(0x2a4a3a);
+
+    for (let i = 0; i < posAttr.count; i++) {
+      const x = posAttr.getX(i);
+      const z = posAttr.getZ(i);
+      const y = terrainHeight(x, z);
+      posAttr.setY(i, y);
+      const c = new THREE.Color();
+      if (y < -3) c.copy(cWaterbed);
+      else if (y < 0.2) c.copy(cSand).lerp(cWaterbed, Math.max(0, -y/3));
+      else if (y > 14) c.copy(cDirt).lerp(cGreen, 0.3);
+      else c.copy(cGreen).offsetHSL(0, 0, (Math.random()-0.5) * 0.07);
+      colors.push(c.r, c.g, c.b);
+    }
+    terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    terrainGeo.computeVertexNormals();
+
+    const terrain = new THREE.Mesh(terrainGeo, new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.95, metalness: 0
+    }));
+    terrain.receiveShadow = true;
+    terrain.castShadow = true;
+    scene.add(terrain);
+
+    // ============ 水面 ============
+    const waterGeo = new THREE.PlaneGeometry(MAP_SIZE, MAP_SIZE);
+    waterGeo.rotateX(-Math.PI / 2);
+    const water = new THREE.Mesh(waterGeo, new THREE.MeshStandardMaterial({
+      color: 0x2a7a9a, transparent: true, opacity: 0.7,
+      roughness: 0.05, metalness: 0.7, emissive: new THREE.Color(0x0a2030)
+    }));
+    water.position.y = -3.5;
+    water.receiveShadow = true;
+    scene.add(water);
+
+    // ============ 道路 ============
+    const roadGroup = new THREE.Group();
+    scene.add(roadGroup);
+
+    function buildRoad(points2D, width, mat) {
+      const curve = new THREE.CatmullRomCurve3(
+        points2D.map(p => new THREE.Vector3(p[0], 0, p[1])),
+        false, 'catmullrom', 0.5
+      );
+      const positions = [];
+      const indices = [];
+      const normals = [];
+      const len = curve.getLength();
+      const segCount = Math.max(20, Math.floor(len / 3));
+      const roadMat = mat.clone();
+      roadMat.side = THREE.DoubleSide;
+      
+      for (let i = 0; i <= segCount; i++) {
+        const t = i / segCount;
+        const pt = curve.getPointAt(t);
+        const tan = curve.getTangentAt(t).normalize();
+        const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+        const hw = width / 2;
+        const lx = pt.x - side.x * hw;
+        const lz = pt.z - side.z * hw;
+        const rx = pt.x + side.x * hw;
+        const rz = pt.z + side.z * hw;
+        const baseY = terrainHeight(pt.x, pt.z) + 0.3;
+        positions.push(lx, baseY, lz);
+        positions.push(rx, baseY, rz);
+        normals.push(0, 1, 0, 0, 1, 0);
+      }
+      for (let i = 0; i < segCount; i++) {
+        const a = i*2, b = i*2+1, c = (i+1)*2, d = (i+1)*2+1;
+        indices.push(a, b, c);
+        indices.push(b, d, c);
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      geo.setIndex(indices);
+      const roadMesh = new THREE.Mesh(geo, roadMat);
+      roadMesh.receiveShadow = true;
+      roadMesh.renderOrder = 1;
+      roadGroup.add(roadMesh);
+      
+      const edgeMat = new THREE.MeshStandardMaterial({ 
+        color: 0xffffff, emissive: new THREE.Color(0x333333), 
+        roughness: 0.6, side: THREE.DoubleSide
+      });
+      for (const sgn of [-1, 1]) {
+        const ePos = [], eIdx = [], eNor = [];
+        for (let i = 0; i <= segCount; i++) {
+          const t = i / segCount;
+          const pt = curve.getPointAt(t);
+          const tan = curve.getTangentAt(t).normalize();
+          const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+          const hw = width / 2;
+          const edgeW = 0.35;
+          const cx = pt.x + side.x * (hw - 0.3) * sgn;
+          const cz = pt.z + side.z * (hw - 0.3) * sgn;
+          const cy = terrainHeight(pt.x, pt.z) + 0.35;
+          ePos.push(
+            cx - side.x * edgeW/2, cy, cz - side.z * edgeW/2,
+            cx + side.x * edgeW/2, cy, cz + side.z * edgeW/2
+          );
+          eNor.push(0, 1, 0, 0, 1, 0);
+        }
+        for (let i = 0; i < segCount; i++) {
+          const a = i*2, b = i*2+1, c = (i+1)*2, d = (i+1)*2+1;
+          eIdx.push(a, b, c);
+          eIdx.push(b, d, c);
+        }
+        const eg = new THREE.BufferGeometry();
+        eg.setAttribute('position', new THREE.Float32BufferAttribute(ePos, 3));
+        eg.setAttribute('normal', new THREE.Float32BufferAttribute(eNor, 3));
+        eg.setIndex(eIdx);
+        const em = new THREE.Mesh(eg, edgeMat);
+        em.receiveShadow = true;
+        em.renderOrder = 2;
+        roadGroup.add(em);
+      }
+      return curve;
+    }
+
+    const cityRoadMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.85 });
+    const cityCurves = [];
+
+    [32, 62].forEach(baseR => {
+      const pts = [];
+      const n = 24;
+      for (let i = 0; i <= n; i++) {
+        const a = (i/n) * Math.PI * 2;
+        const r = baseR + Math.sin(a * 3) * 3;
+        pts.push([Math.cos(a) * r, Math.sin(a) * r]);
+      }
+      cityCurves.push(buildRoad(pts, ROAD_WIDTH_CITY, cityRoadMat));
+    });
+
+    for (let i = 0; i < 6; i++) {
+      const a = (i/6) * Math.PI * 2;
+      const pts = [
+        [Math.cos(a) * 10, Math.sin(a) * 10],
+        [Math.cos(a) * 35, Math.sin(a) * 35],
+        [Math.cos(a) * 62, Math.sin(a) * 62],
+      ];
+      cityCurves.push(buildRoad(pts, ROAD_WIDTH_CITY * 0.9, cityRoadMat));
+    }
+
+    const suburbRoadMat = new THREE.MeshStandardMaterial({ color: 0x4a4a44, roughness: 0.9 });
+    const suburbCurves = [];
+    for (let i = 0; i < 4; i++) {
+      const a = (i/4) * Math.PI * 2 + 0.2;
+      const pts = [
+        [Math.cos(a) * 62, Math.sin(a) * 62],
+        [Math.cos(a+0.1) * 110, Math.sin(a+0.1) * 110],
+        [Math.cos(a+0.15) * 155, Math.sin(a+0.15) * 155],
+      ];
+      suburbCurves.push(buildRoad(pts, ROAD_WIDTH_SUBURB, suburbRoadMat));
+    }
+    const sRing = [];
+    for (let i = 0; i <= 30; i++) {
+      const a = (i/30) * Math.PI * 2;
+      const r = 140 + Math.sin(a * 2) * 15;
+      sRing.push([Math.cos(a) * r, Math.sin(a) * r]);
+    }
+    suburbCurves.push(buildRoad(sRing, ROAD_WIDTH_SUBURB, suburbRoadMat));
+
+    // ============ 道路采样 ============
+    const roadSamples = [];
+    [...cityCurves, ...suburbCurves].forEach(curve => {
+      const len = curve.getLength();
+      const n = Math.max(20, Math.floor(len / 2.5));
+      for (let i = 0; i <= n; i++) {
+        const p = curve.getPointAt(i/n);
+        const isCity = Math.hypot(p.x, p.z) < 70;
+        roadSamples.push({ x: p.x, z: p.z, w: isCity ? ROAD_WIDTH_CITY : ROAD_WIDTH_SUBURB });
+      }
+    });
+    function isOnRoad(x, z, margin = 0) {
+      for (let i = 0; i < roadSamples.length; i++) {
+        const s = roadSamples[i];
+        const dx = x - s.x, dz = z - s.z;
+        if (dx*dx + dz*dz < (s.w/2 + margin) ** 2) return true;
+      }
+      return false;
+    }
+
+    // ============ 建筑 ============
+    const obstacles = [];
+    function createCityBuilding(x, z, w, d, h, color) {
+      const g = new THREE.Group();
+      const baseY = terrainHeight(x, z);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 });
+      const base = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      base.position.y = h/2;
+      base.castShadow = true; base.receiveShadow = true;
+      g.add(base);
+      const winMat = new THREE.MeshStandardMaterial({ color: 0x88bbff, emissive: new THREE.Color(0x223355) });
+      const rows = Math.floor(h / 3.5);
+      const cols = Math.floor(w / 2.2);
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (Math.random() > 0.55) continue;
+          const win = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.1, 0.1), winMat);
+          win.position.set(-w/2 + 1.1 + c * 2.2, 1.8 + r * 3.5, d/2 + 0.06);
+          g.add(win);
+        }
+      }
+      g.position.set(x, baseY, z);
+      return g;
+    }
+    function createSuburbHouse(x, z, w, d, h, rot, color) {
+      const g = new THREE.Group();
+      const baseY = terrainHeight(x, z);
+      const wallMat = new THREE.MeshStandardMaterial({ color, roughness: 0.85 });
+      const walls = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+      walls.position.y = h/2;
+      walls.castShadow = true; walls.receiveShadow = true;
+      g.add(walls);
+      const roofMat = new THREE.MeshStandardMaterial({ color: 0x884433, roughness: 0.9 });
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(w * 0.85, h * 0.7, 4), roofMat);
+      roof.position.y = h + h * 0.35;
+      roof.rotation.y = Math.PI/4;
+      roof.castShadow = true; roof.receiveShadow = true;
+      g.add(roof);
+      g.position.set(x, baseY, z);
+      g.rotation.y = rot;
+      return g;
+    }
+
+    for (let i = 0; i < 150; i++) {
+      const ring = Math.random() < 0.4 ? 0 : 1;
+      const r0 = ring === 0 ? 14 : 40;
+      const r1 = ring === 0 ? 40 : 75;
+      const a = Math.random() * Math.PI * 2;
+      const r = r0 + Math.random() * (r1 - r0);
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      if (isOnRoad(x, z, 4)) continue;
+      const w = 3 + Math.random() * 5;
+      const d = 3 + Math.random() * 5;
+      const h = ring === 0 ? 7 + Math.random() * 16 : 5 + Math.random() * 12;
+      const color = new THREE.Color().setHSL(0.55 + Math.random()*0.15, 0.3 + Math.random()*0.25, 0.45 + Math.random()*0.28);
+      const b = createCityBuilding(x, z, w, d, h, color.getHex());
+      b.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(b);
+      obstacles.push({ x, z, r: Math.max(w, d) * 0.5 + 0.4 });
+    }
+
+    for (let i = 0; i < 120; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 90 + Math.random() * 130;
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      if (Math.abs(x) > HALF_MAP - 12 || Math.abs(z) > HALF_MAP - 12) continue;
+      if (isOnRoad(x, z, 4)) continue;
+      const y = terrainHeight(x, z);
+      if (y < -1.5) continue;
+      const w = 3 + Math.random() * 3;
+      const d = 3 + Math.random() * 3;
+      const h = 2.5 + Math.random() * 2.5;
+      const color = new THREE.Color().setHSL(0.05 + Math.random()*0.1, 0.4 + Math.random()*0.25, 0.55 + Math.random()*0.28);
+      const house = createSuburbHouse(x, z, w, d, h, Math.random() * Math.PI * 2, color.getHex());
+      scene.add(house);
+      obstacles.push({ x, z, r: Math.max(w, d) * 0.5 + 0.4 });
+    }
+
+    // ============ 树木 ============
+    function createTree(x, z, scale = 1) {
+      const g = new THREE.Group();
+      const baseY = terrainHeight(x, z);
+      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.95 });
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25*scale, 0.4*scale, 2*scale, 6), trunkMat);
+      trunk.position.y = 1 * scale;
+      trunk.castShadow = true;
+      g.add(trunk);
+      const leafMat = new THREE.MeshStandardMaterial({ color: 0x2d6a2d, roughness: 0.85 });
+      const leaf1 = new THREE.Mesh(new THREE.ConeGeometry(1.2*scale, 2.2*scale, 7), leafMat);
+      leaf1.position.y = 2.4*scale;
+      leaf1.castShadow = true;
+      g.add(leaf1);
+      const leaf2 = new THREE.Mesh(new THREE.ConeGeometry(0.9*scale, 1.8*scale, 7), leafMat);
+      leaf2.position.y = 3.6*scale;
+      leaf2.castShadow = true;
+      g.add(leaf2);
+      g.position.set(x, baseY, z);
+      return g;
+    }
+    for (let i = 0; i < 400; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 80 + Math.random() * 160;
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      if (Math.abs(x) > HALF_MAP - 6 || Math.abs(z) > HALF_MAP - 6) continue;
+      if (isOnRoad(x, z, 3)) continue;
+      const y = terrainHeight(x, z);
+      if (y < -2) continue;
+      scene.add(createTree(x, z, 0.65 + Math.random() * 0.8));
+    }
+
+    // ============ 玩家车辆 ============
+    const carGroup = new THREE.Group();
+    const carBodyMat = new THREE.MeshStandardMaterial({ color: 0xff3322, roughness: 0.3, metalness: 0.6 });
+    const carBody = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.55, 3.8), carBodyMat);
+    carBody.position.y = 0.6;
+    carBody.castShadow = true;
+    carGroup.add(carBody);
+    const carTop = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.5, 2.0),
+      new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.2, metalness: 0.7 }));
+    carTop.position.set(0, 1.1, -0.2);
+    carTop.castShadow = true;
+    carGroup.add(carTop);
+    const carWin = new THREE.Mesh(new THREE.BoxGeometry(1.05, 0.38, 1.7),
+      new THREE.MeshStandardMaterial({ color: 0x88ccff, emissive: new THREE.Color(0x112233), transparent: true, opacity: 0.85 }));
+    carWin.position.set(0, 1.25, -0.2);
+    carGroup.add(carWin);
+
+    const wheelGeo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 14);
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.95 });
+    const wheelFL = new THREE.Mesh(wheelGeo, wheelMat);
+    wheelFL.rotation.z = Math.PI/2;
+    wheelFL.position.set(-1.0, 0.38, -1.2);
+    wheelFL.castShadow = true;
+    carGroup.add(wheelFL);
+    const wheelFR = wheelFL.clone(); wheelFR.position.x = 1.0; carGroup.add(wheelFR);
+    const wheelRL = wheelFL.clone(); wheelRL.position.set(-1.0, 0.38, 1.2); carGroup.add(wheelRL);
+    const wheelRR = wheelFL.clone(); wheelRR.position.set(1.0, 0.38, 1.2); carGroup.add(wheelRR);
+
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xffffcc, emissive: new THREE.Color(0x886600) });
+    const headL = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 8), headMat);
+    headL.position.set(-0.65, 0.7, -1.9);
+    carGroup.add(headL);
+    const headR = headL.clone(); headR.position.x = 0.65; carGroup.add(headR);
+    const tailMat = new THREE.MeshStandardMaterial({ color: 0xff2222, emissive: new THREE.Color(0x661100) });
+    const tailL = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), tailMat);
+    tailL.position.set(-0.7, 0.65, 1.9);
+    carGroup.add(tailL);
+    const tailR = tailL.clone(); tailR.position.x = 0.7; carGroup.add(tailR);
+
+    scene.add(carGroup);
+
+    // ============ 车辆状态（关键调整：更真实的物理参数） ============
+    const car = {
+      pos: new THREE.Vector3(0, 0, 0),
+      rot: 0,
+      speed: 0,               // 单位/秒
+      // 更真实的数值：
+      // 最大前进速度 25 单位/秒 ≈ 90 km/h（1单位≈1米时）
+      maxSpeedForward: 25,
+      // 最大倒车速度 7 单位/秒 ≈ 25 km/h
+      maxSpeedReverse: -7,
+      // 加速度：0-100km/h (28单位/秒) 约需 8 秒 → 加速度约 3.5 单位/秒²
+      accel: 3.5,
+      // 刹车减速度：约 0.6g ≈ 6 单位/秒²
+      brakeDecel: 8,
+      // 自然摩擦：松开油门后缓慢减速
+      friction: 1.5,
+      // 转向速率（弧度/秒）
+      turnRate: 1.4,
+      // 最低转向速度（低于此速度无法转向）
+      minTurnSpeed: 1.0,
+      radius: 1.9,
+      gear: 'D',
+    };
+    // 初始位置：放在城市内环
+    car.pos.set(0, 0, -32);
+    car.pos.y = terrainHeight(car.pos.x, car.pos.z);
+    car.rot = 0;
+
+    // ============ 输入 ============
+    const input = { left: false, right: false, gas: false, brake: false };
+    function bindBtn(id, prop) {
+      const el = document.getElementById(id);
+      const on = (e) => { e.preventDefault(); input[prop] = true; el.classList.add('active'); };
+      const off = (e) => { e.preventDefault(); input[prop] = false; el.classList.remove('active'); };
+      el.addEventListener('touchstart', on, { passive: false });
+      el.addEventListener('touchend', off, { passive: false });
+      el.addEventListener('touchcancel', off, { passive: false });
+      el.addEventListener('mousedown', on);
+      el.addEventListener('mouseup', off);
+      el.addEventListener('mouseleave', off);
+    }
+    bindBtn('left-btn', 'left');
+    bindBtn('right-btn', 'right');
+    bindBtn('gas-btn', 'gas');
+    bindBtn('brake-btn', 'brake');
+
+    window.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = true;
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = true;
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') input.gas = true;
+      if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') input.brake = true;
+      if (e.key === 'r' || e.key === 'R') toggleGear();
+    });
+    window.addEventListener('keyup', e => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') input.left = false;
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') input.right = false;
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') input.gas = false;
+      if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') input.brake = false;
+    });
+
+    // ============ 换挡器 ============
+    const gearKnob = document.getElementById('gear-knob');
+    const speedEl = document.getElementById('speedometer');
+
+    function toggleGear() {
+      if (car.gear === 'D') {
+        car.gear = 'R';
+        gearKnob.classList.add('reverse');
+        gearKnob.textContent = 'R';
+      } else {
+        car.gear = 'D';
+        gearKnob.classList.remove('reverse');
+        gearKnob.textContent = 'D';
+      }
+      car.speed = 0;
+      updateSpeedUI();
+    }
+    gearKnob.addEventListener('click', toggleGear);
+    gearKnob.addEventListener('touchstart', (e) => { e.preventDefault(); toggleGear(); }, { passive: false });
+
+    function updateSpeedUI() {
+      const kmh = Math.abs(Math.round(car.speed * 3.6));
+      speedEl.textContent = kmh + ' km/h · ' + car.gear;
+    }
+
+    // ============ 小地图 ============
+    const mmCanvas = document.getElementById('minimap-canvas');
+    const mmCtx = mmCanvas.getContext('2d');
+    const MM_SIZE = 260;
+    const MM_VIEW = 260;
+    const MM_SCALE = MM_SIZE / MM_VIEW;
+
+    function drawMinimap() {
+      const cx = car.pos.x, cz = car.pos.z;
+      const toMapX = (x) => (x - cx) * MM_SCALE + MM_SIZE/2;
+      const toMapY = (z) => (z - cz) * MM_SCALE + MM_SIZE/2;
+      mmCtx.fillStyle = '#1a2a1a';
+      mmCtx.fillRect(0, 0, MM_SIZE, MM_SIZE);
+      mmCtx.fillStyle = 'rgba(40,120,160,0.6)';
+      mmCtx.beginPath();
+      mmCtx.arc(toMapX(-140), toMapY(-120), 50 * MM_SCALE, 0, Math.PI*2);
+      mmCtx.fill();
+      mmCtx.beginPath();
+      mmCtx.arc(toMapX(150), toMapY(130), 60 * MM_SCALE, 0, Math.PI*2);
+      mmCtx.fill();
+      mmCtx.strokeStyle = '#ffcc66';
+      mmCtx.lineWidth = 2.5;
+      [...cityCurves, ...suburbCurves].forEach(curve => {
+        const len = curve.getLength();
+        const n = Math.max(10, Math.floor(len / 5));
+        mmCtx.beginPath();
+        let first = true;
+        for (let i = 0; i <= n; i++) {
+          const p = curve.getPointAt(i/n);
+          const mx = toMapX(p.x);
+          const my = toMapY(p.z);
+          if (first) { mmCtx.moveTo(mx, my); first = false; }
+          else mmCtx.lineTo(mx, my);
+        }
+        mmCtx.stroke();
+      });
+      mmCtx.save();
+      mmCtx.translate(MM_SIZE/2, MM_SIZE/2);
+      mmCtx.rotate(car.rot);
+      mmCtx.fillStyle = '#ff3322';
+      mmCtx.beginPath();
+      mmCtx.moveTo(0, -7);
+      mmCtx.lineTo(5, 5);
+      mmCtx.lineTo(-5, 5);
+      mmCtx.closePath();
+      mmCtx.fill();
+      mmCtx.restore();
+      mmCtx.fillStyle = '#fff';
+      mmCtx.font = 'bold 14px sans-serif';
+      mmCtx.textAlign = 'center';
+      mmCtx.fillText('N', MM_SIZE/2, 16);
+    }
+
+    // ============ 区域 ============
+    const zoneEl = document.getElementById('zone-indicator');
+    let currentZone = '';
+    function updateZone() {
+      const d = Math.hypot(car.pos.x, car.pos.z);
+      let zone, bg;
+      if (d < 45) { zone = '🌆 城市中心'; bg = 'rgba(20,60,120,0.7)'; }
+      else if (d < 90) { zone = '🏙️ 城市边缘'; bg = 'rgba(40,90,110,0.7)'; }
+      else if (d < 160) { zone = '🏘️ 城郊'; bg = 'rgba(50,100,50,0.7)'; }
+      else { zone = '🌳 郊区'; bg = 'rgba(30,90,40,0.7)'; }
+      if (zone !== currentZone) {
+        zoneEl.textContent = zone;
+        zoneEl.style.background = bg;
+        currentZone = zone;
+      }
+    }
+
+    // ============ 碰撞 ============
+    function checkCollision(x, z) {
+      const limit = HALF_MAP - 8;
+      if (Math.abs(x) > limit || Math.abs(z) > limit) return true;
+      for (let i = 0; i < obstacles.length; i++) {
+        const o = obstacles[i];
+        const dx = x - o.x, dz = z - o.z;
+        if (dx*dx + dz*dz < (o.r + car.radius) ** 2) return true;
+      }
+      return false;
+    }
+
+    // ============ 主循环 ============
+    const clock = new THREE.Clock();
+    const camOffsetLocal = new THREE.Vector3(0, 7.5, -13);
+
+    {
+      const off = camOffsetLocal.clone().applyAxisAngle(new THREE.Vector3(0,1,0), car.rot);
+      camera.position.copy(car.pos).add(off);
+      camera.lookAt(car.pos.x, car.pos.y + 2, car.pos.z);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+
+      // ===== 转向逻辑（关键修复） =====
+      // 1. 速度过低时不能转向
+      // 2. R 挡时转向方向反转（车尾向左转 = 方向盘效果反向）
+      const absSpeed = Math.abs(car.speed);
+      if (absSpeed > car.minTurnSpeed) {
+        // 速度越高转向幅度越小（高速转向迟钝）
+        const speedFactor = Math.min(1, 8 / absSpeed);
+        // R 挡时方向反转
+        const dirSign = car.gear === 'R' ? -1 : 1;
+        
+        if (input.left) car.rot += car.turnRate * dt * speedFactor * dirSign;
+        if (input.right) car.rot -= car.turnRate * dt * speedFactor * dirSign;
+      }
+
+      // ===== 油门/刹车 =====
+      if (car.gear === 'D') {
+        if (input.gas) {
+          car.speed += car.accel * dt;
+          if (car.speed > car.maxSpeedForward) car.speed = car.maxSpeedForward;
+        } else if (input.brake) {
+          car.speed -= car.brakeDecel * dt;
+          if (car.speed < 0) car.speed = 0;
+        } else {
+          // 自然摩擦
+          if (car.speed > 0) {
+            car.speed -= car.friction * dt;
+            if (car.speed < 0) car.speed = 0;
+          }
+        }
+      } else { // R 挡
+        if (input.gas) {
+          car.speed -= car.accel * dt;
+          if (car.speed < car.maxSpeedReverse) car.speed = car.maxSpeedReverse;
+        } else if (input.brake) {
+          car.speed += car.brakeDecel * dt;
+          if (car.speed > 0) car.speed = 0;
+        } else {
+          if (car.speed < 0) {
+            car.speed += car.friction * dt;
+            if (car.speed > 0) car.speed = 0;
+          }
+        }
+      }
+
+      // ===== 移动 =====
+      const forwardX = Math.sin(car.rot);
+      const forwardZ = Math.cos(car.rot);
+      const newX = car.pos.x + forwardX * car.speed * dt;
+      const newZ = car.pos.z + forwardZ * car.speed * dt;
+
+      if (checkCollision(newX, newZ)) {
+        car.speed = 0;
+        const backX = car.pos.x - forwardX * 0.3;
+        const backZ = car.pos.z - forwardZ * 0.3;
+        if (!checkCollision(backX, backZ)) {
+          car.pos.x = backX;
+          car.pos.z = backZ;
+        }
+      } else {
+        car.pos.x = newX;
+        car.pos.z = newZ;
+      }
+
+      const groundY = terrainHeight(car.pos.x, car.pos.z);
+      car.pos.y = groundY;
+
+      carGroup.position.copy(car.pos);
+      carGroup.rotation.y = car.rot;
+
+      // 地形俯仰
+      const frontH = terrainHeight(car.pos.x + forwardX * 2, car.pos.z + forwardZ * 2);
+      const backH = terrainHeight(car.pos.x - forwardX * 2, car.pos.z - forwardZ * 2);
+      const pitch = Math.atan2(frontH - backH, 4);
+      carGroup.rotation.x = -pitch * 0.5;
+
+      // 侧倾（仅在转向时）
+      const targetRoll = (input.left && absSpeed > car.minTurnSpeed ? 0.05 : 0) + 
+                         (input.right && absSpeed > car.minTurnSpeed ? -0.05 : 0);
+      carGroup.rotation.z += (targetRoll - carGroup.rotation.z) * 8 * dt;
+
+      // 相机
+      const camOffsetWorld = camOffsetLocal.clone().applyAxisAngle(new THREE.Vector3(0,1,0), car.rot);
+      const desiredCamPos = car.pos.clone().add(camOffsetWorld);
+      const camGroundY = terrainHeight(desiredCamPos.x, desiredCamPos.z);
+      desiredCamPos.y = Math.max(desiredCamPos.y, camGroundY + 2.5);
+      camera.position.lerp(desiredCamPos, 5 * dt);
+      const lookAt = new THREE.Vector3(
+        car.pos.x + forwardX * 4,
+        car.pos.y + 2,
+        car.pos.z + forwardZ * 4
+      );
+      camera.lookAt(lookAt);
+
+      updateSpeedUI();
+      updateZone();
+      drawMinimap();
+      scene.fog.far = 320 + absSpeed * 2;
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+    window.addEventListener('touchmove', e => {
+      if (e.target === renderer.domElement) e.preventDefault();
+    }, { passive: false });
+
+    console.log('游戏启动 | 障碍物:', obstacles.length);
+  </script>
+</body>
+</html>
